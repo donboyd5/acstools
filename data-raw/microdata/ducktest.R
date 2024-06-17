@@ -36,57 +36,65 @@ list.files(temp_dir, full.names = TRUE, recursive = TRUE)
 
 # function ----------------------------------------------------------------
 
-f1year <- function(year, rectype="person"){
+f1year <- function(year, rectype){
+  a <- proc.time()
+
   stopifnot(year %in% c(2012:2019, 2021:2022))
   stopifnot(rectype %in% c("person", "household"))
 
   temp_dir <- tempdir()
-  erase_temp(temp_dir)
+  erase_temp(temp_dir) # try to get rid of all files in the temp directory
 
   ypath <- path(r"(E:\data\acs\pums\1year\)", year)
 
-  if(rectype=="person"){
+  if(rectype=="household"){
     zfile <- "csv_hus.zip"
     tabname <- paste0("hus1_", year)
-  } else if(rectype=="household") {
+  } else if(rectype=="person") {
     zfile <- "csv_pus.zip"
     tabname <- paste0("pus1_", year)
   }
 
   zpath <- path(ypath, zfile)
   csvfiles <- unzip(zpath, list = TRUE) |>
-    filter(str_detect(Name, ".csv"))
+    filter(str_detect(Name, ".csv")) |>
+    arrange(Name)
 
   # get column types
-  unzip(zpath, files = csvfiles$Name, exdir = temp_dir, overwrite = TRUE) # extract all csv files
+  unzip(zipfile=zpath, files = csvfiles$Name, exdir = temp_dir, overwrite = TRUE) # extract all csv files
   zpaths <- path(temp_dir, csvfiles$Name)
 
   # get column types from full first file in zip archive
-  some_rows <- vroom(zpaths[1], n_max=Inf)
+  some_rows <- vroom(zpaths[1], guess_max=10e3, n_max=10e3)
   column_types <- sapply(some_rows, class)
-  column_classes <- str_replace(column_types, "logical", "numeric")
+  column_classes <- column_types # this will be a named vector, too
+  column_classes[column_types=="logical"] <- "numeric"
+  iweights <- str_detect(names(column_classes), coll("pwgtp", ignore_case = TRUE))
+  column_classes[iweights] <- "numeric"
   # print(table(column_types))
+  # print(table(column_classes))
 
   con <- dbConnect(duckdb(dbdir = acs1yrdb))
-  a <- proc.time()
-  for (i in 1:length(zpaths)) {
-    print(zpaths[i])
-    print(tabname)
-    if(i==1) dbExecute(con, paste("DROP TABLE IF EXISTS", tabname))
-    duckdb_read_csv(con, tabname, zpaths[i], colClasses = column_classes)
-  }
+  df <- vroom(zpaths, col_types = column_classes) |>
+    btools::lcnames()
+  dbWriteTable(con, tabname, df, overwrite=TRUE)
+  # I use the vroom-dbWriteTable combination rather than duckdb_read_csv() because
+  # the latter does not seem robust enough
+  dbDisconnect(con)
+
   b <- proc.time()
   print(b - a)
-  dbDisconnect(con)
 }
 
+
 g1year <- function(year){
-  f1year(year, rectype="person")
   f1year(year, rectype="household")
+  f1year(year, rectype="person")
 }
 
 g1year(2022)
 g1year(2021)
+# no 2020 - ACS was bad that year
 g1year(2019)
 g1year(2018)
 g1year(2017)
