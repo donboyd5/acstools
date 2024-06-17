@@ -140,13 +140,43 @@ nyh <- tbl(con, "hus5_2022") |>
   collect() |>
   lcnames()
 
-nyp <- tbl(con, "pus5_2022") |>
-  filter(ST==36) |>
-  select(ST, RT, SERIALNO, PWGTP, PINCP) |>
-  collect() |>
-  lcnames()
+nyp <- tbl(con, "pus1_2022") |>
+  filter(mig %in% 2:3) |> # movers 2 diff house outside US/PR ly, 3 diff house in US/PR ly
+  filter(st==36 | migsp=='036') |>
+  select(st, migsp, rt, serialno, mig, pwgtp, pincp) |>
+  collect()
 
 nyp |> pull(pwgtp) |> sum()
+
+nyp |>
+  filter(mig==3, migsp!='036') |> # domestic inmovers from out of state
+  summarise(n=n(), wtdn=sum(pwgtp), .by=migsp) |>
+  mutate(domshare=wtdn / sum(wtdn)) |>
+  arrange(desc(wtdn))
+# 34 NJ
+# 6 CA
+# 42 PA
+# 12 FL
+# 25 MA
+
+# 9  CT
+# 37 NC
+# 48 TX
+# 51 VA
+# 17
+
+year <- 2022
+year <- 2017
+year <- 2012
+tbl(con, paste0("pus1_", year)) |>
+  filter(mig %in% 2:3) |> # movers 2 diff house outside US/PR ly, 3 diff house in US/PR ly
+  filter(st==36 | migsp=='036') |>
+  filter(mig==3, migsp!='036') |> # domestic inmovers from out of state
+  select(st, migsp, rt, serialno, mig, pwgtp, pincp) |>
+  summarise(n=n(), wtdn=sum(pwgtp, na.rm = TRUE), .by=migsp) |>
+  mutate(totn=sum(wtdn), domshare=wtdn / sum(wtdn), year=!!year) |>
+  arrange(desc(wtdn)) |>
+  collect()
 
 
 dbDisconnect(con)
